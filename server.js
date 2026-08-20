@@ -18,45 +18,16 @@ app.use(helmet({
   contentSecurityPolicy: false
 }));
 
-// Explicit CORS configuration for POS, Website, Dev ports and Razorpay Webhooks
-const defaultAllowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  'http://localhost:5176',
-  'http://localhost:3000',
-  'http://localhost:5002',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5174',
-  'http://127.0.0.1:5175',
-  'http://127.0.0.1:5176'
-];
-
-const envOrigins = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
-  : [];
-
-const allowedOrigins = [...defaultAllowedOrigins, ...envOrigins];
-
-const isLocalDevOrigin = (origin) => {
-  return /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin);
-};
-
+// Universal CORS configuration (Supports Custom Domains, Hostinger Preview Sites, POS, & Localhost)
 const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps, curl, server-to-server Razorpay webhooks)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin) || allowedOrigins.includes('*') || isLocalDevOrigin(origin)) {
-      return callback(null, true);
-    }
-    return callback(new Error(`CORS policy rejection: Origin ${origin} not allowed`));
-  },
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-File-Name', 'X-Razorpay-Signature']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
 };
 
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
