@@ -102,8 +102,10 @@ const getSupabaseProjects = () => {
   return projects;
 };
 
+const { publicOrderLimiter } = require('../middleware/rateLimiter');
+
 // Supabase Storage upload endpoint with dynamic account failover
-router.post('/upload', express.raw({ type: 'image/*', limit: '10mb' }), async (req, res) => {
+router.post('/upload', publicOrderLimiter, express.raw({ type: 'image/*', limit: '10mb' }), async (req, res) => {
   try {
     const fileBuffer = req.body;
     const fileType = req.headers['content-type'] || 'image/webp';

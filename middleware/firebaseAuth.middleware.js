@@ -1,4 +1,5 @@
-const { admin, db } = require('../config/firebase.config');
+const { admin } = require('../config/firebase.config');
+const db = require('../config/db');
 
 const verifyFirebaseToken = async (req, res, next) => {
   try {
@@ -12,68 +13,56 @@ const verifyFirebaseToken = async (req, res, next) => {
     let decodedToken;
     let userData = null;
 
+    if (!admin || !admin.auth || typeof admin.auth !== 'function') {
+      return res.status(401).json({ success: false, message: 'Authentication service unavailable.' });
+    }
+
     try {
-      // Verify Firebase ID Token in standard environments
       decodedToken = await admin.auth().verifyIdToken(token);
-      
-      // Fetch associated user profile from Firestore users collection
-      const userDoc = await db.collection('users').doc(decodedToken.uid).get();
-      if (userDoc.exists) {
-        userData = userDoc.data();
-      }
-    } catch (adminErr) {
-      const isCredsError = adminErr.message?.includes('Could not load the default credentials') || 
-                           adminErr.code === 'app/no-credentials';
+    } catch (verifyErr) {
+      // Log the specific error code for forensic diagnosis
+      console.error('verifyIdToken failed — code:', verifyErr.code, '| msg:', verifyErr.message?.substring(0, 120));
+      return res.status(401).json({ success: false, message: 'Invalid or expired authentication token.', code: verifyErr.code || 'auth/verify-failed' });
+    }
 
-      if (isCredsError) {
-        // Fallback JWT parsing for localhost/development environment when service account cert is not present
-        const parts = token.split('.');
-        if (parts.length === 3) {
-          const payloadJson = Buffer.from(parts[1], 'base64').toString('utf8');
-          decodedToken = JSON.parse(payloadJson);
+    if (!decodedToken || (!decodedToken.uid && !decodedToken.user_id && !decodedToken.sub)) {
+      return res.status(401).json({ success: false, message: 'Invalid authentication token.' });
+    }
+
+    const email = (decodedToken.email || '').toLowerCase().trim();
+
+    // Fetch User Role & Profile from Hostinger MySQL Data Store if present
+    if (email) {
+      try {
+        const [rows] = await db.query('SELECT * FROM users WHERE email = ? LIMIT 1', [email]);
+        if (rows.length > 0) {
+          userData = rows[0];
         }
-
-        if (!decodedToken) {
-          throw adminErr;
-        }
-
-        // If client passed user context in request body, use it
-        const bodyUser = req.body && req.body.user;
-        req.user = {
-          uid: decodedToken.user_id || decodedToken.uid,
-          email: decodedToken.email,
-          name: (bodyUser && bodyUser.name) || decodedToken.name || decodedToken.email?.split('@')[0] || 'Fallback User',
-          role: ((bodyUser && bodyUser.role) || decodedToken.role || 'admin').toLowerCase(),
-          branchId: (bodyUser && bodyUser.branchId) || decodedToken.branchId || '',
-          branchCode: (bodyUser && bodyUser.branchCode) || decodedToken.branchCode || '',
-          isFallback: true
-        };
-        return next();
-      } else {
-        throw adminErr;
+      } catch (dbErr) {
+        console.warn('MySQL User Lookup Warning:', dbErr.message);
       }
     }
 
-    if (!userData) {
-      // If user profile is not found in Firestore, fallback to a default staff role
-      req.user = {
-        uid: decodedToken.uid,
-        email: decodedToken.email,
-        name: decodedToken.name || decodedToken.email.split('@')[0],
-        role: 'staff',
-        branchId: '',
-        branchCode: ''
-      };
-    } else {
-      req.user = {
-        uid: decodedToken.uid,
-        email: decodedToken.email,
-        name: userData.name || decodedToken.name || decodedToken.email.split('@')[0],
-        role: (userData.role || 'staff').toLowerCase(),
-        branchId: userData.branchId || '',
-        branchCode: userData.branchCode || ''
-      };
+    let determinedRole = 'customer';
+    if (userData?.role) {
+      // Priority 1: Authoritative MySQL users table role
+      determinedRole = userData.role.toLowerCase();
+    } else if (decodedToken.role) {
+      // Priority 2: Custom claim 'role' set via Firebase Admin SDK
+      determinedRole = String(decodedToken.role).toLowerCase();
+    } else if (decodedToken.admin === true || decodedToken.isAdmin === true) {
+      // Priority 3: Custom claim 'admin: true' or 'isAdmin: true'
+      determinedRole = 'admin';
     }
+
+    console.log(`[Auth] uid=${decodedToken.uid?.substring(0, 8)}... email=${email} role=${determinedRole}`);
+
+    req.user = {
+      uid: decodedToken.uid || decodedToken.user_id || decodedToken.sub,
+      email: email,
+      name: userData?.name || decodedToken.name || (email ? email.split('@')[0] : 'User'),
+      role: determinedRole,
+    };
 
     next();
   } catch (error) {
@@ -82,4 +71,98 @@ const verifyFirebaseToken = async (req, res, next) => {
   }
 };
 
-module.exports = { verifyFirebaseToken };
+const requireAdmin = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'Authentication required.' });
+  }
+  const role = (req.user.role || '').toLowerCase();
+  if (['admin', 'owner'].includes(role)) {
+    return next();
+  }
+  return res.status(403).json({ success: false, message: 'Access denied: Admin authorization required.' });
+};
+
+const requireManagerOrAdmin = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'Authentication required.' });
+  }
+  const role = (req.user.role || '').toLowerCase();
+  if (['admin', 'manager', 'owner'].includes(role)) {
+    return next();
+  }
+  return res.status(403).json({ success: false, message: 'Access denied: Manager or Admin authorization required.' });
+};
+
+const requireStaffOrAdmin = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'Authentication required.' });
+  }
+  const role = (req.user.role || '').toLowerCase();
+  if (['admin', 'manager', 'staff', 'billing', 'owner'].includes(role)) {
+    return next();
+  }
+  return res.status(403).json({ success: false, message: 'Access denied: Staff authorization required.' });
+};
+
+// Optional Auth Middleware: Never blocks unauthenticated requests, but attaches req.user if valid token provided
+const verifyOptionalAuth = async (req, res, next) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) return next();
+
+    if (!admin || !admin.auth || typeof admin.auth !== 'function') {
+      return next();
+    }
+
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(token);
+    } catch (_) {
+      return next();
+    }
+
+    if (!decodedToken || (!decodedToken.uid && !decodedToken.user_id && !decodedToken.sub)) {
+      return next();
+    }
+
+    const email = (decodedToken.email || '').toLowerCase().trim();
+    let userData = null;
+    if (email) {
+      try {
+        const [rows] = await db.query('SELECT * FROM users WHERE email = ? LIMIT 1', [email]);
+        if (rows.length > 0) userData = rows[0];
+      } catch (_) {}
+    }
+
+    let determinedRole = 'customer';
+    if (userData?.role) {
+      // Priority 1: Authoritative MySQL users table role
+      determinedRole = userData.role.toLowerCase();
+    } else if (decodedToken.role) {
+      // Priority 2: Custom claim 'role' set via Firebase Admin SDK
+      determinedRole = String(decodedToken.role).toLowerCase();
+    } else if (decodedToken.admin === true || decodedToken.isAdmin === true) {
+      // Priority 3: Custom claim 'admin: true' or 'isAdmin: true'
+      determinedRole = 'admin';
+    }
+
+    req.user = {
+      uid: decodedToken.uid || decodedToken.user_id || decodedToken.sub,
+      email: email,
+      name: userData?.name || decodedToken.name || (email ? email.split('@')[0] : 'User'),
+      role: determinedRole,
+    };
+    next();
+  } catch (_) {
+    next();
+  }
+};
+
+module.exports = {
+  verifyFirebaseToken,
+  verifyOptionalAuth,
+  requireAdmin,
+  requireManagerOrAdmin,
+  requireStaffOrAdmin
+};
