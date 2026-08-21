@@ -49,6 +49,7 @@ const imageRoutes = require('./routes/image.routes');
 const supplierRoutes = require('./routes/supplier.routes');
 const settingRoutes = require('./routes/setting.routes');
 const branchRoutes = require('./routes/branch.routes');
+const authRoutes = require('./routes/auth.routes');
 
 const { startOrderEngine } = require('./automation/orderEngine');
 
@@ -63,6 +64,7 @@ app.use('/api/v1/images', imageRoutes);
 app.use('/api/v1/suppliers', supplierRoutes);
 app.use('/api/v1/settings', settingRoutes);
 app.use('/api/v1/branches', branchRoutes);
+app.use('/api/v1/auth', authRoutes);
 
 // Diagnostic: who am I? — returns token identity and resolved role
 const { verifyFirebaseToken } = require('./middleware/firebaseAuth.middleware');

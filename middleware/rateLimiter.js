@@ -11,6 +11,18 @@ const publicOrderLimiter = rateLimit({
   }
 });
 
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 requests per 15 minutes per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many password reset requests from this IP. Please try again after 15 minutes."
+  }
+});
+
 module.exports = {
-  publicOrderLimiter
+  publicOrderLimiter,
+  forgotPasswordLimiter
 };

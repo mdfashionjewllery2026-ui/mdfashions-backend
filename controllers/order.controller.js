@@ -576,8 +576,13 @@ exports.getOrders = async (req, res) => {
     const userPhone = String(req.user?.phoneNumber || req.user?.phone || '').trim();
 
     let querySql = `SELECT o.*, 
+        c.address AS customer_address,
+        c.city AS customer_city,
+        c.pincode AS customer_pincode,
         (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) AS itemCount
-       FROM orders o WHERE 1=1`;
+       FROM orders o
+       LEFT JOIN customers c ON (o.customer_phone = c.phone OR (o.customer_id IS NOT NULL AND o.customer_id = c.id))
+       WHERE 1=1`;
     const queryParams = [];
 
     // If customer, restrict to their own orders only
@@ -644,6 +649,8 @@ exports.getOrders = async (req, res) => {
       orders.forEach(o => {
         const orderItems = itemsByOrderId[o.id] || [];
         o.items = orderItems;
+        o.address = o.customer_address || o.address || '';
+        o.shipping_address = o.customer_address || o.shipping_address || o.address || '';
         const totalProfit = orderItems.reduce((sum, it) => sum + (it.profit || 0), 0);
         const totalCost = orderItems.reduce((sum, it) => sum + ((it.costPrice || 0) * (it.quantity || 1)), 0);
         o.profit = totalProfit > 0 ? totalProfit : (Number(o.total_amount || 0) * 0.3);
@@ -668,7 +675,13 @@ exports.getOrderById = async (req, res) => {
   try {
     const { id } = req.params;
     const [orders] = await db.query(
-      `SELECT * FROM orders WHERE id = ? OR invoice_id = ? LIMIT 1`,
+      `SELECT o.*, 
+              c.address AS customer_address,
+              c.city AS customer_city,
+              c.pincode AS customer_pincode
+       FROM orders o
+       LEFT JOIN customers c ON (o.customer_phone = c.phone OR (o.customer_id IS NOT NULL AND o.customer_id = c.id))
+       WHERE o.id = ? OR o.order_number = ? LIMIT 1`,
       [id, id]
     );
 
@@ -677,6 +690,8 @@ exports.getOrderById = async (req, res) => {
     }
 
     const order = orders[0];
+    order.address = order.customer_address || order.address || '';
+    order.shipping_address = order.customer_address || order.shipping_address || order.address || '';
     const [items] = await db.query(
       `SELECT oi.*, p.image_url, p.cost_price, p.category AS product_category
        FROM order_items oi
