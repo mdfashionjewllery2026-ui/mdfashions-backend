@@ -8,6 +8,25 @@ const DEFAULT_SHOWROOM = {
   phone2: '8015566770'
 };
 
+const DEFAULT_SHIPPING = {
+  handlingFeeBracket1: 0,
+  handlingFeeBracket2: 50,
+  handlingFeeBracket3: 100,
+  handlingFeeBracket4: 150,
+  freeShippingThreshold: 500000,
+  enableFreeShippingThreshold: false
+};
+
+const DEFAULT_CUSTOMIZATIONS = {
+  attachments: [
+    { name: 'Rope', price: 10 },
+    { name: 'Back Chain', price: 50 },
+    { name: 'No Attachment', price: 0 }
+  ],
+  customizedProducts: [],
+  enabledCategoryIds: []
+};
+
 // GET setting by key
 exports.getSetting = async (req, res) => {
   try {
@@ -21,6 +40,12 @@ exports.getSetting = async (req, res) => {
     if (rows.length === 0) {
       if (key === 'showroom') {
         return res.json({ success: true, setting_key: 'showroom', setting_value: DEFAULT_SHOWROOM });
+      }
+      if (key === 'shipping') {
+        return res.json({ success: true, setting_key: 'shipping', setting_value: DEFAULT_SHIPPING });
+      }
+      if (key === 'customizations') {
+        return res.json({ success: true, setting_key: 'customizations', setting_value: DEFAULT_CUSTOMIZATIONS });
       }
       return res.status(404).json({ success: false, message: `Setting '${key}' not found` });
     }

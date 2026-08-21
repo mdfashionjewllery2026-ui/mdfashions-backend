@@ -118,18 +118,43 @@ const calculateAuthoritativeOrder = async (connection, items) => {
   }
 
   const totalQty = processedItems.reduce((sum, it) => sum + it.quantity, 0);
-  let handlingFee = 0;
-  if (totalQty >= 1 && totalQty <= 5) {
-    handlingFee = 0;
-  } else if (totalQty >= 6 && totalQty <= 10) {
-    handlingFee = 50;
-  } else if (totalQty >= 11 && totalQty <= 20) {
-    handlingFee = 100;
-  } else if (totalQty > 20) {
-    handlingFee = 150;
+
+  // Read Global Shipping Settings dynamically from MySQL settings table
+  const [shipRows] = await connection.query(
+    `SELECT setting_value FROM settings WHERE setting_key = 'shipping' LIMIT 1`
+  );
+  let shipConfig = {
+    handlingFeeBracket1: 0,
+    handlingFeeBracket2: 50,
+    handlingFeeBracket3: 100,
+    handlingFeeBracket4: 150,
+    freeShippingThreshold: 500000,
+    enableFreeShippingThreshold: false
+  };
+  if (shipRows.length > 0) {
+    try {
+      const parsed = typeof shipRows[0].setting_value === 'string' ? JSON.parse(shipRows[0].setting_value) : shipRows[0].setting_value;
+      if (parsed) shipConfig = { ...shipConfig, ...parsed };
+    } catch (_) {}
   }
 
-  const calculatedShipping = baseShipping + handlingFee;
+  let handlingFee = 0;
+  if (totalQty >= 1 && totalQty <= 5) {
+    handlingFee = Number(shipConfig.handlingFeeBracket1 || 0);
+  } else if (totalQty >= 6 && totalQty <= 10) {
+    handlingFee = Number(shipConfig.handlingFeeBracket2 || 0);
+  } else if (totalQty >= 11 && totalQty <= 20) {
+    handlingFee = Number(shipConfig.handlingFeeBracket3 || 0);
+  } else if (totalQty > 20) {
+    handlingFee = Number(shipConfig.handlingFeeBracket4 || 0);
+  }
+
+  let calculatedShipping = baseShipping + handlingFee;
+
+  if (shipConfig.enableFreeShippingThreshold && shipConfig.freeShippingThreshold > 0 && calculatedSubtotal >= shipConfig.freeShippingThreshold) {
+    calculatedShipping = 0;
+  }
+
   const calculatedTax = 0; // Tax is 0% (inclusive) in current MD Fashions business model
   const calculatedTotal = calculatedSubtotal + calculatedShipping + calculatedTax;
 
