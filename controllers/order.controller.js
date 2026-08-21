@@ -564,20 +564,40 @@ exports.calculateAuthoritativeOrder = calculateAuthoritativeOrder;
   }
 };
 
-// @desc    Get All Orders (Invoices)
+// @desc    Get All Orders (Invoices) - Staff/Admin gets all, Customer gets their own
 // @route   GET /api/v1/orders
 exports.getOrders = async (req, res) => {
   try {
     const { order_source, source } = req.query;
     const targetSource = (order_source || source || '').toUpperCase().trim();
+    const userRole = (req.user?.role || 'customer').toLowerCase();
+    const isStaffOrAdmin = userRole === 'admin' || userRole === 'staff';
+    const userEmail = (req.user?.email || '').toLowerCase().trim();
+    const userPhone = String(req.user?.phoneNumber || req.user?.phone || '').trim();
 
     let querySql = `SELECT o.*, 
         (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) AS itemCount
-       FROM orders o`;
+       FROM orders o WHERE 1=1`;
     const queryParams = [];
 
+    // If customer, restrict to their own orders only
+    if (!isStaffOrAdmin) {
+      if (userEmail && userPhone) {
+        querySql += ` AND (LOWER(o.customer_email) = ? OR o.customer_phone = ?)`;
+        queryParams.push(userEmail, userPhone);
+      } else if (userEmail) {
+        querySql += ` AND LOWER(o.customer_email) = ?`;
+        queryParams.push(userEmail);
+      } else if (userPhone) {
+        querySql += ` AND o.customer_phone = ?`;
+        queryParams.push(userPhone);
+      } else {
+        return res.status(200).json({ success: true, orders: [] });
+      }
+    }
+
     if (targetSource && targetSource !== 'ALL') {
-      querySql += ` WHERE UPPER(o.order_source) = ?`;
+      querySql += ` AND UPPER(o.order_source) = ?`;
       queryParams.push(targetSource);
     }
 
@@ -718,7 +738,17 @@ exports.updateOrderStatus = async (req, res) => {
     const newOrderStatus = (order_status || orderStatus || '').toUpperCase().trim();
     const newPaymentStatus = (payment_status || paymentStatus || '').toUpperCase().trim();
 
-    const VALID_ORDER_STATUSES = ['PENDING', 'IN_PACKING_QUEUE', 'SHIPPED', 'DELIVERED', 'CANCELLED'];
+    const VALID_ORDER_STATUSES = [
+      'PENDING', 
+      'CONFIRMED', 
+      'IN_PACKING_QUEUE', 
+      'PACKED', 
+      'READY_TO_SHIP', 
+      'SHIPPED', 
+      'OUT_FOR_DELIVERY', 
+      'DELIVERED', 
+      'CANCELLED'
+    ];
     const VALID_PAYMENT_STATUSES = ['PENDING', 'PAID', 'FAILED', 'REFUNDED'];
 
     if (newOrderStatus && !VALID_ORDER_STATUSES.includes(newOrderStatus)) {

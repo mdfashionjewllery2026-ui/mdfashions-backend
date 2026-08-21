@@ -7,10 +7,10 @@ const { publicOrderLimiter } = require('../middleware/rateLimiter');
 // Create Order (POS / Website Checkout)
 router.post('/', publicOrderLimiter, orderController.createOrder);
 
-// Order Reads (Staff / Admin)
+// Order Reads (Staff / Admin & Authenticated Customers)
 router.get('/next-sequence', orderController.getNextInvoicePreview);
-router.get('/', verifyFirebaseToken, requireStaffOrAdmin, orderController.getOrders);
-router.get('/:id', verifyFirebaseToken, requireStaffOrAdmin, orderController.getOrderById);
+router.get('/', verifyFirebaseToken, orderController.getOrders);
+router.get('/:id', verifyFirebaseToken, orderController.getOrderById);
 
 // Order Mutations (Staff / Admin)
 router.put('/:id', verifyFirebaseToken, requireStaffOrAdmin, orderController.updateOrderStatus);
