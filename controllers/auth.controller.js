@@ -43,22 +43,24 @@ exports.forgotPassword = async (req, res) => {
     }
 
     // 3. Generate Firebase password reset link via Admin SDK
-    const actionUrl = process.env.PASSWORD_RESET_URL || 'https://mdfashions.in/reset-password';
-    const actionCodeSettings = {
-      url: actionUrl,
-      handleCodeInApp: true
-    };
-
     let resetLink;
     try {
       if (admin && admin.auth && typeof admin.auth === 'function') {
-        resetLink = await admin.auth().generatePasswordResetLink(normalizedEmail, actionCodeSettings);
+        const rawLink = await admin.auth().generatePasswordResetLink(normalizedEmail);
+        try {
+          const urlObj = new URL(rawLink);
+          const oobCode = urlObj.searchParams.get('oobCode');
+          const frontendBase = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://mdfashions.in' : 'http://localhost:3000');
+          resetLink = `${frontendBase}/reset-password?oobCode=${oobCode}`;
+        } catch (_) {
+          resetLink = rawLink;
+        }
       } else {
         console.warn('[ForgotPassword] Firebase Admin Auth is unavailable.');
         return res.status(200).json(genericSuccessResponse);
       }
     } catch (fbError) {
-      if (fbError.code === 'auth/user-not-found') {
+      if (fbError.code === 'auth/user-not-found' || fbError.message?.includes('INTERNAL ASSERT FAILED')) {
         console.log(`[ForgotPassword] User not registered in Firebase: ${normalizedEmail}`);
       } else {
         console.warn(`[ForgotPassword] Firebase Admin link generation note for ${normalizedEmail}:`, fbError.message);

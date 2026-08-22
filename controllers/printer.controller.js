@@ -114,6 +114,95 @@ class PrinterController {
     const separator = '-'.repeat(lineLen);
     const dSeparator = '='.repeat(lineLen);
 
+    // Address-Only Thermal Print
+    if (bill.isAddressOnly || req.body.isAddressOnly) {
+      try {
+        const encoder = new EscPosEncoder();
+        let enc = encoder.initialize().raw([0x1b, 0x45, 0x01]); // Bold ON
+
+        // Word wrap helper
+        const wrap = (text, maxLen) => {
+          if (!text) return [];
+          const lines = [];
+          const paragraphs = String(text).split(/\r?\n/);
+          for (const para of paragraphs) {
+            const words = para.trim().split(/\s+/);
+            let cur = '';
+            for (const w of words) {
+              if (!w) continue;
+              if (!cur) cur = w;
+              else if ((cur + ' ' + w).length <= maxLen) cur += ' ' + w;
+              else { lines.push(cur); cur = w; }
+            }
+            if (cur) lines.push(cur);
+          }
+          return lines;
+        };
+
+        enc = enc
+          .align('center')
+          .size('double')
+          .raw([0x1b, 0x45, 0x01])
+          .text('MD FASHIONS')
+          .newline()
+          .size('normal')
+          .raw([0x1b, 0x45, 0x01])
+          .text('CUSTOMER DELIVERY ADDRESS')
+          .newline()
+          .text(dSeparator)
+          .newline()
+          .align('left');
+
+        if (bill.orderId || bill.invoiceId) {
+          enc = enc.text(`Order ID : ${bill.orderId || bill.invoiceId}`).newline();
+        }
+        if (bill.customerName) {
+          enc = enc.bold(true).text(`Customer : ${bill.customerName}`).newline();
+        }
+        if (bill.customerPhone && bill.customerPhone !== 'N/A') {
+          enc = enc.bold(true).text(`Phone    : ${bill.customerPhone}`).newline();
+        }
+        if (bill.customerEmail && bill.customerEmail !== 'N/A') {
+          enc = enc.text(`Email    : ${bill.customerEmail}`).newline();
+        }
+
+        enc = enc
+          .text(separator)
+          .newline()
+          .bold(true)
+          .text('Delivery Address:')
+          .newline();
+
+        const addressStr = bill.address || bill.shippingAddress || bill.customer_address || '';
+        const lines = wrap(addressStr, lineLen);
+        if (lines.length > 0) {
+          lines.forEach(l => { enc = enc.bold(true).text(l).newline(); });
+        } else {
+          enc = enc.text('No delivery address specified').newline();
+        }
+
+        enc = enc
+          .text(dSeparator)
+          .newline()
+          .align('center')
+          .newline()
+          .text('MD FASHIONS LUXURY JEWELLERY')
+          .newline()
+          .text('www.mdfashions.in')
+          .newline()
+          .newline()
+          .raw([0x1b, 0x45, 0x00])
+          .cut()
+          .encode();
+
+        await printerManager.print(ip, port || 9100, enc);
+        return res.status(200).json({ success: true, message: 'Delivery address printed successfully' });
+      } catch (err) {
+        console.error('[PrinterController] Address print failed:', err);
+        return res.status(500).json({ success: false, message: err.message });
+      }
+    }
+
     try {
       const encoder = new EscPosEncoder();
       let enc = encoder.initialize().raw([0x1b, 0x45, 0x01]); // ESC E 1 (Bold ON)

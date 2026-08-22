@@ -9,14 +9,24 @@ dotenv.config();
 // Google's public JWKS automatically for verifyIdToken() without needing
 // a private key. This supports local development without a service account JSON.
 
+const fs = require('fs');
+const path = require('path');
+
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'mdfashionmysql';
 const CLIENT_EMAIL = process.env.FIREBASE_CLIENT_EMAIL;
 const PRIVATE_KEY = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
 
 if (!admin.apps.length) {
   try {
-    if (CLIENT_EMAIL && PRIVATE_KEY) {
-      // Full service account — production mode
+    if (fs.existsSync(serviceAccountPath)) {
+      const serviceAccount = require(serviceAccountPath);
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
+      console.log('✅ Firebase Admin initialized with serviceAccountKey.json credentials.');
+    } else if (CLIENT_EMAIL && PRIVATE_KEY) {
+      // Full service account from environment variables — production mode
       admin.initializeApp({
         credential: admin.credential.cert({
           projectId: PROJECT_ID,
@@ -24,10 +34,9 @@ if (!admin.apps.length) {
           privateKey: PRIVATE_KEY
         })
       });
-      console.log('✅ Firebase Admin initialized with service account credentials.');
+      console.log('✅ Firebase Admin initialized with service account credentials from env.');
     } else {
       // No service account — init with projectId only.
-      // verifyIdToken() works by fetching Google public keys (no private key needed).
       admin.initializeApp({ projectId: PROJECT_ID });
       console.log(`✅ Firebase Admin initialized with projectId: ${PROJECT_ID} (public key verification mode).`);
     }

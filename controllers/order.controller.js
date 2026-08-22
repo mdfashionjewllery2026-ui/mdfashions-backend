@@ -648,12 +648,24 @@ exports.getOrders = async (req, res) => {
 
       orders.forEach(o => {
         const orderItems = itemsByOrderId[o.id] || [];
+        const itemsSubtotal = orderItems.reduce((sum, it) => sum + (Number(it.price || 0) * Number(it.quantity || 1)), 0);
+        const totAmt = Number(o.total_amount || 0);
+        const shippingAmt = Math.max(0, totAmt - itemsSubtotal);
+
         o.items = orderItems;
         o.address = o.customer_address || o.address || '';
         o.shipping_address = o.customer_address || o.shipping_address || o.address || '';
+        o.subtotal = itemsSubtotal > 0 ? itemsSubtotal : (totAmt - shippingAmt);
+        o.shipping = shippingAmt;
+        o.shipping_charge = shippingAmt;
+        o.shippingCharge = shippingAmt;
+        o.totalAmount = totAmt;
+        o.tax = 0;
+        o.discount = 0;
+
         const totalProfit = orderItems.reduce((sum, it) => sum + (it.profit || 0), 0);
         const totalCost = orderItems.reduce((sum, it) => sum + ((it.costPrice || 0) * (it.quantity || 1)), 0);
-        o.profit = totalProfit > 0 ? totalProfit : (Number(o.total_amount || 0) * 0.3);
+        o.profit = totalProfit > 0 ? totalProfit : (totAmt * 0.3);
         o.gross_profit = o.profit;
         o.total_cost = totalCost;
       });
@@ -724,6 +736,9 @@ exports.getOrderById = async (req, res) => {
       };
     });
 
+    const itemsSubtotal = mappedItems.reduce((sum, it) => sum + (Number(it.price || 0) * Number(it.quantity || 1)), 0);
+    const totAmt = Number(order.total_amount || 0);
+    const shippingAmt = Math.max(0, totAmt - itemsSubtotal);
     const totalProfit = mappedItems.reduce((sum, it) => sum + (it.profit || 0), 0);
     const totalCost = mappedItems.reduce((sum, it) => sum + ((it.costPrice || 0) * (it.quantity || 1)), 0);
 
@@ -732,8 +747,15 @@ exports.getOrderById = async (req, res) => {
       order: {
         ...order,
         items: mappedItems,
-        profit: totalProfit > 0 ? totalProfit : (Number(order.total_amount || 0) * 0.3),
-        gross_profit: totalProfit > 0 ? totalProfit : (Number(order.total_amount || 0) * 0.3),
+        subtotal: itemsSubtotal > 0 ? itemsSubtotal : (totAmt - shippingAmt),
+        shipping: shippingAmt,
+        shipping_charge: shippingAmt,
+        shippingCharge: shippingAmt,
+        totalAmount: totAmt,
+        tax: 0,
+        discount: 0,
+        profit: totalProfit > 0 ? totalProfit : (totAmt * 0.3),
+        gross_profit: totalProfit > 0 ? totalProfit : (totAmt * 0.3),
         total_cost: totalCost
       }
     });
